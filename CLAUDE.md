@@ -89,7 +89,7 @@ ngrok http 5173
 - **Auto-deploy**: every push to `main` branch triggers Netlify build
 - **Build command**: `npm run build`
 - **Publish directory**: `dist`
-- **Netlify URL**: update this once connected → [TODO: add your netlify URL]
+- **Netlify URL**: update this once connected → https://easterstory.netlify.app
 - **QR code**: generate from the Netlify URL at qr-code-generator.com or similar
 
 ## Conventions
