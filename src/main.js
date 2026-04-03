@@ -39,33 +39,71 @@ window.addEventListener('unhandledrejection', (e) => {
 })
 
 // ---------------------------------------------------------------------------
+// XR8 script load diagnostics
+// The <script> tag is async so we need to detect both success and failure.
+// ---------------------------------------------------------------------------
+
+let xr8ScriptStatus = 'pending'   // pending | loaded | error | already-present
+
+// Find the XR8 script tag and watch it
+const xr8ScriptEl = document.querySelector('script[src*="engine-binary"]')
+if (xr8ScriptEl) {
+  dbg(`XR8 script tag found: ${xr8ScriptEl.src}`)
+  xr8ScriptEl.addEventListener('load', () => {
+    xr8ScriptStatus = 'script-loaded'
+    dbg('XR8 <script> downloaded OK — waiting for xrloaded event…', 'ok')
+    setStatus('engine', 'pending', 'AR engine downloaded, initialising…')
+  })
+  xr8ScriptEl.addEventListener('error', () => {
+    xr8ScriptStatus = 'script-error'
+    dbg(`XR8 <script> failed to download from: ${xr8ScriptEl.src}`, 'err')
+    setStatus('engine', 'fail', `Download failed: ${xr8ScriptEl.src.split('/').slice(-3).join('/')}`)
+    showDebugOnError()
+  })
+} else {
+  dbg('XR8 script tag not found in DOM', 'err')
+  xr8ScriptStatus = 'no-tag'
+}
+
+// ---------------------------------------------------------------------------
 // XR8 promise — resolves when engine fires 'xrloaded', or null after timeout.
 // Pattern from public/xrengine/tools/entry.js.
 // ---------------------------------------------------------------------------
 
 const XR8Promise = new Promise((resolve) => {
   if (window.XR8) {
+    xr8ScriptStatus = 'already-present'
     dbg('XR8 already present on window', 'ok')
     resolve(window.XR8)
   } else {
     dbg('waiting for xrloaded event…')
     window.addEventListener('xrloaded', () => {
+      xr8ScriptStatus = 'loaded'
       dbg('xrloaded event fired ✓', 'ok')
+      setStatus('engine', 'ok', 'AR engine ready ✓')
       resolve(window.XR8)
     }, { once: true })
   }
 })
 
-// Also listen for XR8's own error event on the window
+// XR8's own error event (camera denied, unsupported device, etc.)
 window.addEventListener('xrerror', (e) => {
   showDebugOnError()
-  dbg(`xrerror: ${JSON.stringify(e.detail)}`, 'err')
+  dbg(`xrerror event: ${JSON.stringify(e.detail)}`, 'err')
+  setSplashStatus(`AR error: ${e.detail?.type ?? 'unknown'}`, true)
 })
 
 const XR8WithTimeout = Promise.race([
   XR8Promise,
   new Promise((resolve) => setTimeout(() => {
-    dbg('XR8 did not load within 6 s — falling back to preview mode', 'warn')
+    const reason = xr8ScriptStatus === 'script-error'
+      ? 'script failed to download'
+      : xr8ScriptStatus === 'script-loaded'
+      ? 'script downloaded but xrloaded never fired'
+      : xr8ScriptStatus === 'no-tag'
+      ? 'no script tag found'
+      : 'timeout waiting for xrloaded'
+    dbg(`XR8 not ready after 6 s (${reason}) — preview mode`, 'warn')
     resolve(null)
   }, 6000)),
 ])
@@ -83,13 +121,35 @@ const MODEL_URLS = [
 export const preloadedBuffers = {}
 
 // ---------------------------------------------------------------------------
-// UI refs
+// UI refs + status helpers
 // ---------------------------------------------------------------------------
 
 const splash       = document.getElementById('splash')
 const loadingBar   = document.getElementById('loading-bar')
 const loadingLabel = document.getElementById('loading-label')
 const beginBtn     = document.getElementById('begin-btn')
+
+/**
+ * Update a status-list row.
+ * @param {'https'|'engine'|'models'|'camera'} key
+ * @param {'ok'|'fail'|'warn'|'pending'} state
+ * @param {string} text
+ */
+function setStatus(key, state, text) {
+  const li   = document.getElementById(`st-${key}`)
+  const icon = li?.querySelector('.st-icon')
+  const span = li?.querySelector('.st-text')
+  if (!li) return
+  li.className = state
+  icon.textContent = state === 'ok' ? '✓' : state === 'fail' ? '✗' : state === 'warn' ? '⚠' : '⏳'
+  if (text) span.textContent = text
+}
+
+/** Update the small label above the Begin button (used for AR-engine sub-states). */
+function setSplashStatus(text, isError = false) {
+  loadingLabel.textContent = text
+  loadingLabel.style.color = isError ? 'rgba(255,100,100,0.9)' : ''
+}
 
 // ---------------------------------------------------------------------------
 // Background preload — models only; audio unlocked after user gesture
@@ -98,22 +158,33 @@ const beginBtn     = document.getElementById('begin-btn')
 async function preloadAssets() {
   let completed = 0
 
+  let failed = 0
   const fetchModel = async (url) => {
+    const name = url.split('/').pop()
     try {
-      dbg(`fetching ${url.split('/').pop()}…`)
+      dbg(`fetching ${name}…`)
+      setStatus('models', 'pending', `Loading models… (${completed}/${MODEL_URLS.length})`)
       const res = await fetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       preloadedBuffers[url] = await res.arrayBuffer()
-      dbg(`loaded ${url.split('/').pop()} (${(preloadedBuffers[url].byteLength / 1024).toFixed(1)} KB)`, 'ok')
+      dbg(`loaded ${name} (${(preloadedBuffers[url].byteLength / 1024).toFixed(1)} KB)`, 'ok')
     } catch (err) {
-      dbg(`failed to load ${url.split('/').pop()}: ${err.message}`, 'warn')
+      failed++
+      dbg(`failed to load ${name}: ${err.message}`, 'warn')
     }
     completed++
     loadingBar.style.width = `${Math.round((completed / MODEL_URLS.length) * 100)}%`
   }
 
   await Promise.all(MODEL_URLS.map(fetchModel))
-  dbg('asset preload complete', 'ok')
+
+  if (failed === 0) {
+    setStatus('models', 'ok', `All ${MODEL_URLS.length} models loaded ✓`)
+    dbg('asset preload complete', 'ok')
+  } else {
+    setStatus('models', 'warn', `${MODEL_URLS.length - failed}/${MODEL_URLS.length} models loaded`)
+    dbg(`asset preload done with ${failed} failure(s)`, 'warn')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -142,18 +213,34 @@ async function checkCameraPermission() {
 
 async function boot() {
   dbg('boot started')
-  dbg(`HTTPS: ${location.protocol === 'https:' ? 'yes ✓' : 'NO — camera requires HTTPS'}`,
-      location.protocol === 'https:' ? 'ok' : 'err')
-  dbg(`userAgent: ${navigator.userAgent.slice(0, 80)}`)
+
+  // ── HTTPS check ──────────────────────────────────────────────────────────
+  const isHttps = location.protocol === 'https:' || location.hostname === 'localhost'
+  dbg(`protocol: ${location.protocol} host: ${location.hostname}`, isHttps ? 'ok' : 'err')
+  setStatus('https',
+    isHttps ? 'ok' : 'fail',
+    isHttps ? `Secure connection ✓ (${location.hostname})` : `Needs HTTPS — camera blocked on ${location.protocol}`)
 
   checkCameraPermission()
 
-  // Kick off model preload and XR8 load in parallel
+  // ── Kick off model preload and XR8 load in parallel ──────────────────────
   const [xr8] = await Promise.all([XR8WithTimeout, preloadAssets()])
 
-  dbg(xr8 ? 'XR8 ready ✓' : 'XR8 not available', xr8 ? 'ok' : 'warn')
+  // ── Engine status row ────────────────────────────────────────────────────
+  if (xr8) {
+    setStatus('engine', 'ok', 'AR engine ready ✓')
+    dbg('XR8 ready ✓', 'ok')
+  } else {
+    const reason = xr8ScriptStatus === 'script-error'
+      ? 'Script download failed — check network / CSP'
+      : xr8ScriptStatus === 'script-loaded'
+      ? 'Script loaded but engine never initialised'
+      : 'Engine timed out — running in preview mode'
+    setStatus('engine', 'warn', reason)
+    dbg(`XR8 not available: ${reason}`, 'warn')
+  }
 
-  loadingLabel.textContent = xr8 ? 'Ready' : 'Preview mode (no AR)'
+  setSplashStatus(xr8 ? 'Ready' : 'Preview mode — no live camera')
   beginBtn.classList.add('ready')
   beginBtn.disabled = false
 
@@ -164,6 +251,7 @@ async function boot() {
   })
 
   dbg('user tapped Begin')
+  setStatus('camera', 'pending', 'Requesting camera access…')
 
   splash.classList.add('hidden')
   splash.addEventListener('transitionend', () => splash.remove(), { once: true })
@@ -206,6 +294,7 @@ function startXR(XR8) {
 
       onStart({ canvas: c }) {
         dbg('pipeline onStart ✓', 'ok')
+        setStatus('camera', 'ok', 'Camera active ✓')
         const { scene, camera } = XR8.Threejs.xrScene()
         initExperience(scene, camera)
       },
@@ -215,15 +304,18 @@ function startXR(XR8) {
         onUpdate(camera)
       },
 
-      // Surface / camera permission errors come through here
       onError(error) {
         showDebugOnError()
-        dbg(`pipeline onError: ${JSON.stringify(error)}`, 'err')
+        const msg = error?.type ?? JSON.stringify(error)
+        dbg(`pipeline onError: ${msg}`, 'err')
+        setStatus('camera', 'fail', `Camera error: ${msg}`)
       },
 
       onException({ error }) {
         showDebugOnError()
-        dbg(`pipeline onException: ${error?.message ?? error}`, 'err')
+        const msg = error?.message ?? String(error)
+        dbg(`pipeline onException: ${msg}`, 'err')
+        setStatus('camera', 'fail', `Exception: ${msg}`)
       },
     },
   ])

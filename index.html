@@ -166,6 +166,28 @@
         text-transform: uppercase;
       }
 
+      /* Status checklist */
+      .status-list {
+        list-style: none;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+      }
+      .status-list li {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        font-size: 0.78rem;
+        color: rgba(255,255,255,0.45);
+        transition: color 0.3s;
+      }
+      .status-list li.ok   { color: rgba(140,255,160,0.85); }
+      .status-list li.fail { color: rgba(255,100,100,0.9); }
+      .status-list li.warn { color: rgba(255,180,60,0.85); }
+      .st-icon { font-size: 0.85rem; width: 1.2em; text-align: center; }
+      .st-text { flex: 1; }
+
       #begin-btn {
         width: 100%;
         padding: 1rem;
@@ -291,6 +313,27 @@
             <div class="loading-bar" id="loading-bar"></div>
           </div>
           <p class="loading-label" id="loading-label">Preparing experience…</p>
+
+          <!-- Live status checklist — updated by JS as each step completes -->
+          <ul class="status-list" id="status-list">
+            <li id="st-https">
+              <span class="st-icon">⏳</span>
+              <span class="st-text">Checking connection…</span>
+            </li>
+            <li id="st-engine">
+              <span class="st-icon">⏳</span>
+              <span class="st-text">Loading AR engine…</span>
+            </li>
+            <li id="st-models">
+              <span class="st-icon">⏳</span>
+              <span class="st-text">Loading models…</span>
+            </li>
+            <li id="st-camera">
+              <span class="st-icon">⏳</span>
+              <span class="st-text">Camera — tap Begin to grant access</span>
+            </li>
+          </ul>
+
           <button id="begin-btn" disabled>Begin</button>
         </div>
 
