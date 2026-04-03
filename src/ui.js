@@ -1,28 +1,6 @@
-import { unlockAudio } from './audio.js'
-
-const tapScreen  = document.getElementById('tap-to-start')
-const promptEl   = document.getElementById('prompt')
+const promptEl = document.getElementById('prompt')
 
 let promptTimeout = null
-
-// ---------------------------------------------------------------------------
-// Tap-to-start
-// ---------------------------------------------------------------------------
-
-/**
- * Wire up the tap-to-start overlay.
- * Resolves when the user taps (audio is unlocked at that point).
- * @returns {Promise<void>}
- */
-export function waitForTap() {
-  return new Promise((resolve) => {
-    tapScreen.addEventListener('click', async () => {
-      await unlockAudio()
-      tapScreen.style.display = 'none'
-      resolve()
-    }, { once: true })
-  })
-}
 
 // ---------------------------------------------------------------------------
 // Narrative prompts

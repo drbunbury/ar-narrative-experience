@@ -4,10 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <title>AR Experience</title>
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>The Encounter — AR Experience</title>
     <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { background: #000; overflow: hidden; font-family: sans-serif; }
+      *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+      body { background: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 
       #ar-canvas {
         position: fixed;
@@ -15,33 +16,196 @@
         width: 100%; height: 100%;
       }
 
-      /* Tap-to-start overlay */
-      #tap-to-start {
+      /* ── Splash screen ─────────────────────────────────────────────────── */
+      #splash {
         position: fixed;
         inset: 0;
+        z-index: 100;
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
-        background: rgba(0,0,0,0.75);
-        color: white;
-        z-index: 100;
-        cursor: pointer;
+        justify-content: flex-end;
+        padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
+        background:
+          linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.72) 55%, rgba(0,0,0,0.93) 100%),
+          radial-gradient(ellipse 120% 60% at 50% 0%, #1a1028 0%, #000 70%);
+        color: #fff;
+        transition: opacity 0.6s ease;
       }
-      #tap-to-start h1 { font-size: 1.5rem; margin-bottom: 1rem; }
-      #tap-to-start p  { font-size: 1rem; opacity: 0.7; }
 
-      /* Narrative prompt shown during experience */
+      #splash.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Ambient particle dots — pure CSS, no JS needed */
+      #splash::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image:
+          radial-gradient(1.5px 1.5px at 15% 20%, rgba(255,255,255,0.45) 0%, transparent 100%),
+          radial-gradient(1px 1px at 78% 12%, rgba(255,255,255,0.3) 0%, transparent 100%),
+          radial-gradient(1.5px 1.5px at 42% 8%, rgba(255,255,255,0.35) 0%, transparent 100%),
+          radial-gradient(1px 1px at 90% 30%, rgba(255,255,255,0.25) 0%, transparent 100%),
+          radial-gradient(1.5px 1.5px at 5% 55%, rgba(255,255,255,0.2) 0%, transparent 100%),
+          radial-gradient(1px 1px at 62% 18%, rgba(255,255,255,0.3) 0%, transparent 100%),
+          radial-gradient(2px 2px at 30% 40%, rgba(180,140,255,0.3) 0%, transparent 100%),
+          radial-gradient(1.5px 1.5px at 88% 52%, rgba(180,140,255,0.2) 0%, transparent 100%);
+        pointer-events: none;
+      }
+
+      .splash-inner {
+        width: 100%;
+        max-width: 420px;
+        padding: 2rem 2rem 2.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+      }
+
+      /* Title block */
+      .splash-title {
+        text-align: center;
+      }
+      .splash-eyebrow {
+        font-size: 0.7rem;
+        letter-spacing: 0.25em;
+        text-transform: uppercase;
+        color: rgba(200,180,255,0.7);
+        margin-bottom: 0.5rem;
+      }
+      .splash-title h1 {
+        font-size: 2.4rem;
+        font-weight: 300;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+        color: #fff;
+      }
+      .splash-title h1 em {
+        font-style: normal;
+        color: rgba(200,180,255,0.85);
+      }
+      .splash-subtitle {
+        margin-top: 0.75rem;
+        font-size: 0.9rem;
+        line-height: 1.5;
+        color: rgba(255,255,255,0.55);
+      }
+
+      /* Divider */
+      .splash-rule {
+        width: 40px;
+        height: 1px;
+        background: rgba(200,180,255,0.3);
+        margin: 0 auto;
+      }
+
+      /* How-to steps */
+      .splash-steps {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      .step {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+      }
+      .step-icon {
+        flex-shrink: 0;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 1px solid rgba(200,180,255,0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1rem;
+        background: rgba(200,180,255,0.08);
+      }
+      .step-text strong {
+        display: block;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: rgba(255,255,255,0.9);
+        margin-bottom: 0.15rem;
+      }
+      .step-text span {
+        font-size: 0.78rem;
+        color: rgba(255,255,255,0.45);
+        line-height: 1.4;
+      }
+
+      /* Loading + begin button area */
+      .splash-cta {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .loading-track {
+        width: 100%;
+        height: 2px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 1px;
+        overflow: hidden;
+      }
+      .loading-bar {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, rgba(200,180,255,0.6), rgba(200,180,255,1));
+        border-radius: 1px;
+        transition: width 0.4s ease;
+      }
+      .loading-label {
+        font-size: 0.72rem;
+        letter-spacing: 0.08em;
+        color: rgba(255,255,255,0.35);
+        text-transform: uppercase;
+      }
+
+      #begin-btn {
+        width: 100%;
+        padding: 1rem;
+        border: 1px solid rgba(200,180,255,0.4);
+        border-radius: 0.5rem;
+        background: rgba(200,180,255,0.1);
+        color: rgba(255,255,255,0.4);
+        font-size: 0.95rem;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        cursor: default;
+        transition: all 0.35s ease;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #begin-btn.ready {
+        border-color: rgba(200,180,255,0.75);
+        background: rgba(200,180,255,0.18);
+        color: #fff;
+        cursor: pointer;
+        box-shadow: 0 0 24px rgba(180,140,255,0.2);
+      }
+      #begin-btn.ready:active {
+        background: rgba(200,180,255,0.35);
+        transform: scale(0.98);
+      }
+
+      /* ── In-experience narrative prompt ─────────────────────────────────── */
       #prompt {
         position: fixed;
         bottom: 10%;
         left: 50%;
         transform: translateX(-50%);
         background: rgba(0,0,0,0.6);
-        color: white;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        color: #fff;
         padding: 0.75rem 1.5rem;
         border-radius: 2rem;
-        font-size: 1rem;
+        font-size: 0.95rem;
         text-align: center;
         pointer-events: none;
         opacity: 0;
@@ -58,9 +222,53 @@
 
     <canvas id="ar-canvas"></canvas>
 
-    <div id="tap-to-start">
-      <h1>✦ AR Experience</h1>
-      <p>Tap anywhere to begin</p>
+    <div id="splash">
+      <div class="splash-inner">
+
+        <div class="splash-title">
+          <p class="splash-eyebrow">✦ &nbsp; AR Story Experience</p>
+          <h1>The <em>Encounter</em></h1>
+          <p class="splash-subtitle">
+            A hidden story placed in your world.
+            Point your camera at a flat surface and let the scene unfold.
+          </p>
+        </div>
+
+        <div class="splash-rule"></div>
+
+        <div class="splash-steps">
+          <div class="step">
+            <div class="step-icon">📷</div>
+            <div class="step-text">
+              <strong>Allow camera access</strong>
+              <span>The experience places 3D characters in your real environment.</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-icon">🔍</div>
+            <div class="step-text">
+              <strong>Find a flat surface</strong>
+              <span>Move your phone slowly until the first character appears.</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-icon">👁</div>
+            <div class="step-text">
+              <strong>Follow the prompts</strong>
+              <span>Pan right to discover something hidden. Look back — nothing stays the same.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="splash-cta">
+          <div class="loading-track">
+            <div class="loading-bar" id="loading-bar"></div>
+          </div>
+          <p class="loading-label" id="loading-label">Preparing experience…</p>
+          <button id="begin-btn" disabled>Begin</button>
+        </div>
+
+      </div>
     </div>
 
     <div id="prompt"></div>
