@@ -193,6 +193,26 @@
         transform: scale(0.98);
       }
 
+      /* ── Debug overlay (visible when ?debug or on error) ───────────────── */
+      #debug {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        max-height: 45vh;
+        overflow-y: auto;
+        background: rgba(0,0,0,0.82);
+        color: #0f0;
+        font: 11px/1.5 'Menlo', 'Courier New', monospace;
+        padding: 6px 8px;
+        z-index: 999;
+        pointer-events: none;
+      }
+      #debug.visible { display: block; }
+      #debug .err { color: #f66; }
+      #debug .warn { color: #fa0; }
+      #debug .ok { color: #6f6; }
+      #debug .info { color: #6cf; }
+
       /* ── In-experience narrative prompt ─────────────────────────────────── */
       #prompt {
         position: fixed;
@@ -278,6 +298,9 @@
     </div>
 
     <div id="prompt"></div>
+
+    <!-- Debug log — shown with ?debug param or auto-revealed on any error -->
+    <div id="debug"></div>
 
     <script type="module" src="/src/main.js"></script>
   </body>
