@@ -7,6 +7,19 @@ import { unlockAudio } from './audio.js'
 import { initExperience, onUpdate } from './experience.js'
 
 // ---------------------------------------------------------------------------
+// Resolves when the 8th Wall engine is ready (fires "xrloaded" event on window
+// once the async CDN script has parsed and initialised). Pattern from
+// public/xrengine/tools/entry.js.
+// ---------------------------------------------------------------------------
+const XR8Promise = new Promise((resolve) => {
+  if (window.XR8) {
+    resolve(window.XR8)
+  } else {
+    window.addEventListener('xrloaded', () => resolve(window.XR8), { once: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
 // Asset manifest — everything that needs to be ready before the experience
 // ---------------------------------------------------------------------------
 
@@ -59,55 +72,66 @@ async function preloadAssets() {
 // Boot sequence
 // ---------------------------------------------------------------------------
 
+// Resolves with XR8 instance, or null if the engine doesn't load within 6 s
+// (e.g. desktop browser, offline, unsupported device).
+const XR8WithTimeout = Promise.race([
+  XR8Promise,
+  new Promise((resolve) => setTimeout(() => resolve(null), 6000)),
+])
+
 async function boot() {
-  // 1. Begin fetching models immediately (no user gesture needed for fetch)
-  const preloadDone = preloadAssets()
+  // 1. Kick off model preload and engine load in parallel — both happen while
+  //    the user reads the splash screen.
+  const [xr8] = await Promise.all([XR8WithTimeout, preloadAssets()])
 
-  // 2. Wait for all assets to finish
-  await preloadDone
-
-  // 3. Unlock the Begin button
-  loadingLabel.textContent = 'Ready'
+  // 2. Everything ready — unlock the Begin button
+  loadingLabel.textContent = xr8 ? 'Ready' : 'Preview mode'
   beginBtn.classList.add('ready')
   beginBtn.disabled = false
 
-  // 4. Wait for user tap — required to unlock AudioContext and start camera
+  // 3. Wait for user tap — required to unlock AudioContext and start camera
   await new Promise((resolve) => {
     beginBtn.addEventListener('click', resolve, { once: true })
   })
 
-  // 5. Dismiss splash
+  // 4. Dismiss splash
   splash.classList.add('hidden')
-  // Remove from DOM after transition to free memory
   splash.addEventListener('transitionend', () => splash.remove(), { once: true })
 
-  // 6. Unlock audio (must happen inside the user gesture callstack)
+  // 5. Unlock audio (must happen inside the user gesture callstack)
   await unlockAudio()
 
-  // 7. Start XR pipeline (8th Wall)
-  startXR()
+  // 6. Start XR pipeline, or fall back to plain Three.js preview on desktop
+  if (xr8) {
+    startXR(xr8)
+  } else {
+    console.warn('[main] XR8 not available — running in preview mode without AR.')
+    startPreviewMode()
+  }
 }
 
 // ---------------------------------------------------------------------------
 // 8th Wall XR pipeline
 // ---------------------------------------------------------------------------
 
-function startXR() {
-  // Guard — 8th Wall may not be available in dev without the binary
-  if (typeof XR8 === 'undefined') {
-    console.warn('[main] XR8 not available — running in preview mode without AR.')
-    startPreviewMode()
-    return
-  }
-
+/**
+ * @param {typeof window.XR8} XR8 — resolved engine instance from XR8Promise
+ */
+function startXR(XR8) {
   const canvas = document.getElementById('ar-canvas')
+
+  // XrController handles SLAM surface detection and camera pose.
+  // GlTextureRenderer composites the live camera feed behind the 3D scene.
+  // Threejs wires up the Three.js renderer to the XR render loop.
+  XR8.XrController.configure({ disableWorldTracking: false })
 
   XR8.addCameraPipelineModules([
     XR8.GlTextureRenderer.pipelineModule(),
     XR8.Threejs.pipelineModule(),
+    XR8.XrController.pipelineModule(),
     {
       name: 'narrative-experience',
-      onStart({ canvas: c, GLctx }) {
+      onStart() {
         const { scene, camera } = XR8.Threejs.xrScene()
         initExperience(scene, camera)
       },

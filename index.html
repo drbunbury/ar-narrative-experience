@@ -217,8 +217,14 @@
     </style>
   </head>
   <body>
-    <!-- 8th Wall engine binary — must load before src/main.js -->
-    <script src="/xrengine/xr.js"></script>
+    <!-- 8th Wall engine — CDN, async. data-preload-chunks tells it to fetch the
+         SLAM WASM worker early so it's ready when XR8.run() is called. -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
+      async
+      crossorigin="anonymous"
+      data-preload-chunks="slam"
+    ></script>
 
     <canvas id="ar-canvas"></canvas>
 
