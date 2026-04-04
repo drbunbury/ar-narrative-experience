@@ -78,9 +78,10 @@ const raycaster = new THREE.Raycaster()
 // ---------------------------------------------------------------------------
 
 const SCAN_MESSAGES = [
-  'Find the QR code and point your camera at it…',
-  'Hold the QR code steady in view…',
+  'Point your camera at the QR code',
+  'Hold the QR code flat and steady',
   'Scanning for marker…',
+  'Make sure the full QR code is visible',
 ]
 let scanInterval = null
 let scanIndex    = 0

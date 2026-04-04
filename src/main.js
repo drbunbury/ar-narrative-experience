@@ -4,6 +4,7 @@
  */
 
 import * as THREE from 'three'
+import jsQR from 'jsqr'
 import { unlockAudio } from './audio.js'
 import { initExperience, onUpdate, onTargetFound, onTargetUpdated, onTargetLost } from './experience.js'
 
@@ -285,6 +286,23 @@ function startXR(XR8) {
   dbg('configuring XR8 pipeline…')
   const canvas = document.getElementById('ar-canvas')
 
+  // Intercept fetch so we can see exactly what URLs 8th Wall requests for
+  // image target data — reveals whether targets are being fetched and from where.
+  const _fetch = window.fetch
+  window.fetch = function (input, init) {
+    const url = typeof input === 'string' ? input : (input?.url ?? '')
+    const short = url.replace(location.origin, '').split('?')[0]
+    const p = _fetch.call(this, input, init)
+    p.then(r => {
+      if (!r.ok) dbg(`fetch ${r.status}: ${short}`, 'warn')
+      else if (short.includes('target') || short.includes('.mind')) dbg(`fetch 200: ${short}`, 'ok')
+    }).catch(e => {
+      dbg(`fetch failed: ${short} — ${e.message}`, 'err')
+      showDebugOnError()
+    })
+    return p
+  }
+
   XR8.XrController.configure({
     disableWorldTracking: false,
     enableLighting: true,
@@ -303,6 +321,24 @@ function startXR(XR8) {
         setStatus('camera', 'ok', 'Camera active — point at QR code')
         const { scene, camera } = XR8.Threejs.xrScene()
         initExperience(scene, camera)
+
+        // 8th Wall fires image target events on window, not through pipeline
+        // listeners in all versions — register both to be safe.
+        window.addEventListener('reality.imagetarget.found', e => {
+          dbg(`[window] image target found: ${e.detail.name}`, 'ok')
+          onTargetFound(e.detail)
+        })
+        window.addEventListener('reality.imagetarget.updated', e => {
+          onTargetUpdated(e.detail)
+        })
+        window.addEventListener('reality.imagetarget.lost', e => {
+          dbg(`[window] image target lost: ${e.detail.name}`, 'warn')
+          onTargetLost(e.detail)
+        })
+
+        // Fallback: scan camera frames with jsQR every 1 s.
+        // Works regardless of whether 8th Wall's image target system fires.
+        startJsQRScanner(XR8)
       },
 
       onUpdate({ processCpuResult }) {
@@ -310,10 +346,11 @@ function startXR(XR8) {
         onUpdate(camera, processCpuResult?.reality?.lighting ?? null)
       },
 
+      // Pipeline-level image target listeners (some 8th Wall builds use these)
       listeners: [
         {
           event: 'reality.imagetarget.found',
-          process: ({ detail }) => { dbg(`target found: ${detail.name}`, 'ok'); onTargetFound(detail) },
+          process: ({ detail }) => { dbg(`[pipeline] target found: ${detail.name}`, 'ok'); onTargetFound(detail) },
         },
         {
           event: 'reality.imagetarget.updated',
@@ -321,7 +358,7 @@ function startXR(XR8) {
         },
         {
           event: 'reality.imagetarget.lost',
-          process: ({ detail }) => { dbg(`target lost: ${detail.name}`, 'warn'); onTargetLost(detail) },
+          process: ({ detail }) => { dbg(`[pipeline] target lost: ${detail.name}`, 'warn'); onTargetLost(detail) },
         },
       ],
 
@@ -344,6 +381,104 @@ function startXR(XR8) {
   dbg('calling XR8.run()…')
   XR8.run({ canvas })
   dbg('XR8.run() called — waiting for camera grant…', 'info')
+}
+
+// ---------------------------------------------------------------------------
+// jsQR fallback — scans camera video frames every 1 s.
+// Detects the QR code visually without needing compiled 8th Wall target data.
+// When found, estimates the 3D position via XR8 hit test and calls
+// onTargetFound exactly as the image target system would.
+// ---------------------------------------------------------------------------
+
+function startJsQRScanner(XR8) {
+  dbg('jsQR scanner starting — looking for camera video element…')
+
+  const offscreen = document.createElement('canvas')
+  const ctx = offscreen.getContext('2d', { willReadFrequently: true })
+  let video = null
+
+  // 8th Wall creates a <video> element for the camera stream.
+  // Poll until it's ready and producing frames.
+  const findVideo = setInterval(() => {
+    const v = document.querySelector('video')
+    if (v && v.readyState >= 2 && v.videoWidth > 0) {
+      clearInterval(findVideo)
+      video = v
+      dbg(`jsQR: video element ready (${v.videoWidth}×${v.videoHeight})`, 'ok')
+    }
+  }, 500)
+
+  let lastResult = null
+
+  setInterval(() => {
+    if (!video) return
+
+    // Downsample to 320px wide — enough for QR detection, much faster
+    const scale = 320 / video.videoWidth
+    offscreen.width  = 320
+    offscreen.height = Math.round(video.videoHeight * scale)
+
+    try {
+      ctx.drawImage(video, 0, 0, offscreen.width, offscreen.height)
+    } catch { return }
+
+    const imageData = ctx.getImageData(0, 0, offscreen.width, offscreen.height)
+    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: 'dontInvert',
+    })
+
+    if (!code) {
+      if (lastResult) dbg('jsQR: QR code no longer in view', 'warn')
+      lastResult = null
+      return
+    }
+
+    const isNew = code.data !== lastResult
+    lastResult = code.data
+    if (isNew) dbg(`jsQR detected: "${code.data}"`, 'ok')
+
+    // Compute normalised screen-centre of the detected code
+    const loc = code.location
+    const cx = (loc.topLeftCorner.x + loc.bottomRightCorner.x) / 2 / offscreen.width
+    const cy = (loc.topLeftCorner.y + loc.bottomRightCorner.y) / 2 / offscreen.height
+
+    // Estimate QR physical size from its pixel footprint (assume ~15 cm printed)
+    const pixelWidth = Math.abs(loc.topRightCorner.x - loc.topLeftCorner.x)
+    const fractionOfFrame = pixelWidth / offscreen.width
+    const ASSUMED_QR_METRES = 0.15
+    const approxDistance = ASSUMED_QR_METRES / fractionOfFrame
+
+    dbg(`jsQR: cx=${cx.toFixed(2)} cy=${cy.toFixed(2)} ~${approxDistance.toFixed(2)}m`, 'info')
+
+    // Try 8th Wall hit test first (uses SLAM surface data for accuracy)
+    let placed = false
+    try {
+      const hits = XR8.XrController.hitTest(cx, cy, ['LANDING_PAD', 'FEATURE_POINT'])
+      if (hits.length > 0) {
+        dbg('jsQR: hit test succeeded → placing via SLAM', 'ok')
+        onTargetFound({ ...hits[0], scale: ASSUMED_QR_METRES })
+        placed = true
+      }
+    } catch (e) {
+      dbg(`jsQR: hit test unavailable (${e.message})`, 'warn')
+    }
+
+    if (!placed) {
+      // Fallback: unproject screen point to world ray, place at estimated depth
+      const { camera } = XR8.Threejs.xrScene()
+      const dir = new THREE.Vector3(cx * 2 - 1, -(cy * 2 - 1), 0.5)
+        .unproject(camera)
+        .sub(camera.position)
+        .normalize()
+      const pos = camera.position.clone().addScaledVector(dir, approxDistance)
+      dbg('jsQR: placing via ray unproject', 'ok')
+      onTargetFound({
+        position: pos,
+        rotation: { x: 0, y: 0, z: 0, w: 1 },
+        scale: ASSUMED_QR_METRES,
+      })
+    }
+  }, 1000)
 }
 
 // ---------------------------------------------------------------------------
