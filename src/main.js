@@ -3,8 +3,13 @@
  * Orchestrates: background asset preload → splash → XR pipeline start
  */
 
+import * as THREE from 'three'
 import { unlockAudio } from './audio.js'
 import { initExperience, onUpdate } from './experience.js'
+
+// 8th Wall's ThreeJS pipeline module checks window.THREE at init time.
+// We load Three.js as an ES module, so we must expose it globally ourselves.
+window.THREE = THREE
 
 // ---------------------------------------------------------------------------
 // Debug overlay
