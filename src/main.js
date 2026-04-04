@@ -46,7 +46,7 @@ window.addEventListener('unhandledrejection', (e) => {
 let xr8ScriptStatus = 'pending'   // pending | loaded | error | already-present
 
 // Find the XR8 script tag and watch it
-const xr8ScriptEl = document.querySelector('script[src*="engine-binary"]')
+const xr8ScriptEl = document.querySelector('script[src*="xr.js"]')
 if (xr8ScriptEl) {
   dbg(`XR8 script tag found: ${xr8ScriptEl.src}`)
   xr8ScriptEl.addEventListener('load', () => {

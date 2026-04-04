@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "cp -r node_modules/@8thwall/engine-binary/dist public/xrengine/dist"
   },
   "devDependencies": {
     "vite": "^8.0.1"
   },
   "dependencies": {
+    "@8thwall/engine-binary": "^1.0.0",
     "three": "^0.183.2"
   }
 }

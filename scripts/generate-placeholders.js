@@ -14,7 +14,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = join(__dirname, '..', 'assets', 'models');
+const OUT_DIR = join(__dirname, '..', 'public', 'assets', 'models');
 mkdirSync(OUT_DIR, { recursive: true });
 
 // ---------------------------------------------------------------------------
