@@ -284,9 +284,9 @@ function startXR(XR8) {
   dbg('configuring XR8 pipeline…')
   const canvas = document.getElementById('ar-canvas')
 
-  // Ensure canvas fills the viewport at device resolution before XR8 takes it
-  canvas.width  = window.innerWidth  * window.devicePixelRatio
-  canvas.height = window.innerHeight * window.devicePixelRatio
+  // Do NOT set canvas.width/height here — 8th Wall resizes the canvas itself
+  // to match the camera stream dimensions. Pre-sizing it forces a crop that
+  // makes the camera feed appear zoomed in.
 
   XR8.XrController.configure({ disableWorldTracking: false, enableLighting: true })
 
