@@ -74,15 +74,37 @@ const root = new THREE.Group()
 const raycaster = new THREE.Raycaster()
 
 // ---------------------------------------------------------------------------
+// Scanning prompt — cycles every 1 s while waiting for the QR code
+// ---------------------------------------------------------------------------
+
+const SCAN_MESSAGES = [
+  'Find the QR code and point your camera at it…',
+  'Hold the QR code steady in view…',
+  'Scanning for marker…',
+]
+let scanInterval = null
+let scanIndex    = 0
+
+function startScanning() {
+  scanIndex = 0
+  showPrompt(SCAN_MESSAGES[scanIndex])
+  scanInterval = setInterval(() => {
+    scanIndex = (scanIndex + 1) % SCAN_MESSAGES.length
+    showPrompt(SCAN_MESSAGES[scanIndex])
+  }, 1000)
+}
+
+function stopScanning() {
+  clearInterval(scanInterval)
+  scanInterval = null
+  hidePrompt()
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-/**
- * @param {THREE.Scene}  xrScene
- * @param {THREE.Camera} xrCamera
- * @param {boolean}      useImageTargets  — false → SLAM fallback (place on start)
- */
-export function initExperience(xrScene, xrCamera, useImageTargets = false) {
+export function initExperience(xrScene, xrCamera) {
   scene  = xrScene
   camera = xrCamera
 
@@ -90,21 +112,9 @@ export function initExperience(xrScene, xrCamera, useImageTargets = false) {
   scene.add(dirLight)
   scene.add(root)
 
-  if (useImageTargets) {
-    // Hidden until the QR code is detected
-    root.visible = false
-  } else {
-    // SLAM fallback: place the scene in front of the camera immediately
-    root.position.set(0, 0, 0)
-    root.scale.setScalar(1)
-    root.visible = true
-    STATE.hasPlaced = true
-    STATE.phase     = 'placed'
-    showPrompt('Something is nearby… look around')
-    dbg && console.log('[experience] SLAM mode — scene placed at origin')
-  }
-
+  root.visible = false   // hidden until QR code detected
   loadModels()
+  startScanning()
 }
 
 /** Called every frame by the pipeline. */
@@ -138,6 +148,7 @@ export function onTargetFound({ position, rotation, scale }) {
     STATE.hasPlaced   = true
     STATE.phase       = 'placed'
     root.visible      = true
+    stopScanning()
     showPrompt('Something is nearby… look around')
     console.log(`[experience] marker found, scale=${scale.toFixed(3)} m`)
   }
