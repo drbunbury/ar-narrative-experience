@@ -26,7 +26,8 @@ function dbg(msg, level = 'info') {
   line.className = level
   const ts = new Date().toISOString().slice(11, 23)
   line.textContent = `[${ts}] ${msg}`
-  debugEl.prepend(line)    // newest at top
+  debugEl.appendChild(line)               // newest at bottom
+  debugEl.scrollTop = debugEl.scrollHeight  // keep newest visible
   console[level === 'err' ? 'error' : level === 'warn' ? 'warn' : 'log'](`[dbg] ${msg}`)
 }
 
@@ -377,6 +378,22 @@ function startXR(XR8) {
       },
     },
   ])
+
+  // Set the canvas drawing buffer to exactly cover the viewport at full device
+  // resolution before XR8.run() so 8th Wall renders into a correctly-sized
+  // portrait buffer from the start. The CSS !important rules prevent 8th Wall
+  // from overriding the *display* size back to landscape after startup.
+  function fitCanvas() {
+    const w = window.innerWidth  * window.devicePixelRatio
+    const h = window.innerHeight * window.devicePixelRatio
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width  = w
+      canvas.height = h
+      dbg(`canvas resized to ${w}×${h} (dpr=${window.devicePixelRatio})`)
+    }
+  }
+  fitCanvas()
+  window.addEventListener('resize', fitCanvas)
 
   dbg('calling XR8.run()…')
   XR8.run({ canvas })
