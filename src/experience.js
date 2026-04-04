@@ -77,7 +77,12 @@ const raycaster = new THREE.Raycaster()
 // Public API
 // ---------------------------------------------------------------------------
 
-export function initExperience(xrScene, xrCamera) {
+/**
+ * @param {THREE.Scene}  xrScene
+ * @param {THREE.Camera} xrCamera
+ * @param {boolean}      useImageTargets  — false → SLAM fallback (place on start)
+ */
+export function initExperience(xrScene, xrCamera, useImageTargets = false) {
   scene  = xrScene
   camera = xrCamera
 
@@ -85,7 +90,19 @@ export function initExperience(xrScene, xrCamera) {
   scene.add(dirLight)
   scene.add(root)
 
-  root.visible = false   // hidden until marker first detected
+  if (useImageTargets) {
+    // Hidden until the QR code is detected
+    root.visible = false
+  } else {
+    // SLAM fallback: place the scene in front of the camera immediately
+    root.position.set(0, 0, 0)
+    root.scale.setScalar(1)
+    root.visible = true
+    STATE.hasPlaced = true
+    STATE.phase     = 'placed'
+    showPrompt('Something is nearby… look around')
+    dbg && console.log('[experience] SLAM mode — scene placed at origin')
+  }
 
   loadModels()
 }

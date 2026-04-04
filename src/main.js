@@ -157,6 +157,23 @@ function setSplashStatus(text, isError = false) {
 }
 
 // ---------------------------------------------------------------------------
+// Check at boot time whether compiled image target data exists locally.
+// If missing, image tracking is skipped and SLAM placement is used instead.
+// Once public/assets/qr-scene.targets is compiled and present, image target
+// mode activates automatically on the next load.
+async function checkTargetsFile() {
+  try {
+    const res = await fetch('/assets/qr-scene.targets', { method: 'HEAD' })
+    if (res.ok) {
+      dbg('qr-scene.targets found — image target mode ✓', 'ok')
+      return true
+    }
+  } catch (_) {}
+  dbg('qr-scene.targets not found — using SLAM fallback', 'warn')
+  return false
+}
+
+// ---------------------------------------------------------------------------
 // Background preload — models only; audio unlocked after user gesture
 // ---------------------------------------------------------------------------
 
@@ -228,8 +245,12 @@ async function boot() {
 
   checkCameraPermission()
 
-  // ── Kick off model preload and XR8 load in parallel ──────────────────────
-  const [xr8] = await Promise.all([XR8WithTimeout, preloadAssets()])
+  // ── Kick off all three in parallel while the user reads the splash ────────
+  const [xr8, , targetsReady] = await Promise.all([
+    XR8WithTimeout,
+    preloadAssets(),
+    checkTargetsFile(),
+  ])
 
   // ── Engine status row ────────────────────────────────────────────────────
   if (xr8) {
@@ -269,7 +290,7 @@ async function boot() {
   }
 
   if (xr8) {
-    startXR(xr8)
+    startXR(xr8, targetsReady)
   } else {
     dbg('starting preview mode (Three.js only)', 'warn')
     startPreviewMode()
@@ -280,33 +301,50 @@ async function boot() {
 // 8th Wall XR pipeline
 // ---------------------------------------------------------------------------
 
-function startXR(XR8) {
-  dbg('configuring XR8 pipeline…')
+/**
+ * @param {typeof window.XR8} XR8
+ * @param {boolean} useImageTargets — true only when qr-scene.targets is present
+ */
+function startXR(XR8, useImageTargets) {
+  dbg(`configuring XR8 pipeline (imageTargets=${useImageTargets})…`)
   const canvas = document.getElementById('ar-canvas')
 
-  // Do NOT set canvas.width/height here — 8th Wall resizes the canvas itself
-  // to match the camera stream dimensions. Pre-sizing it forces a crop that
-  // makes the camera feed appear zoomed in.
+  const xrConfig = { disableWorldTracking: false, enableLighting: true }
+  // Only pass imageTargets when the compiled data file exists — without it XR8
+  // tries to fetch/import the target data and throws "Importing a module script
+  // failed" when the request 404s.
+  if (useImageTargets) xrConfig.imageTargets = ['qr-scene']
+  XR8.XrController.configure(xrConfig)
 
-  XR8.XrController.configure({
-    disableWorldTracking: false,
-    enableLighting: true,
-    // 'qr-scene' must match the name used when compiling the image target data
-    imageTargets: ['qr-scene'],
-  })
+  // Build image target listeners only when targets are active
+  const itListeners = useImageTargets ? [
+    {
+      event: 'reality.imagetarget.found',
+      process: ({ detail }) => { dbg(`target found: ${detail.name}`, 'ok'); onTargetFound(detail) },
+    },
+    {
+      event: 'reality.imagetarget.updated',
+      process: ({ detail }) => onTargetUpdated(detail),
+    },
+    {
+      event: 'reality.imagetarget.lost',
+      process: ({ detail }) => { dbg(`target lost: ${detail.name}`, 'warn'); onTargetLost(detail) },
+    },
+  ] : []
 
   XR8.addCameraPipelineModules([
-    XR8.GlTextureRenderer.pipelineModule(),  // camera feed composited behind scene
-    XR8.Threejs.pipelineModule(),            // Three.js render loop
-    XR8.XrController.pipelineModule(),       // SLAM surface detection + camera pose
+    XR8.GlTextureRenderer.pipelineModule(),
+    XR8.Threejs.pipelineModule(),
+    XR8.XrController.pipelineModule(),
     {
       name: 'narrative-experience',
 
-      onStart({ canvas: c }) {
+      onStart() {
         dbg('pipeline onStart ✓', 'ok')
-        setStatus('camera', 'ok', 'Camera active — point at QR code')
+        const hint = useImageTargets ? 'Point camera at QR code' : 'Point at a flat surface'
+        setStatus('camera', 'ok', `Camera active — ${hint}`)
         const { scene, camera } = XR8.Threejs.xrScene()
-        initExperience(scene, camera)
+        initExperience(scene, camera, useImageTargets)
       },
 
       onUpdate({ processCpuResult }) {
@@ -314,26 +352,7 @@ function startXR(XR8) {
         onUpdate(camera, processCpuResult?.reality?.lighting ?? null)
       },
 
-      listeners: () => [
-        {
-          event: 'reality.imagetarget.found',
-          process: ({ detail }) => {
-            dbg(`image target found: ${detail.name}`, 'ok')
-            onTargetFound(detail)
-          },
-        },
-        {
-          event: 'reality.imagetarget.updated',
-          process: ({ detail }) => onTargetUpdated(detail),
-        },
-        {
-          event: 'reality.imagetarget.lost',
-          process: ({ detail }) => {
-            dbg(`image target lost: ${detail.name}`, 'warn')
-            onTargetLost(detail)
-          },
-        },
-      ],
+      listeners: () => itListeners,
 
       onError(error) {
         showDebugOnError()
