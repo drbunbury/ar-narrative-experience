@@ -288,7 +288,7 @@ function startXR(XR8) {
   canvas.width  = window.innerWidth  * window.devicePixelRatio
   canvas.height = window.innerHeight * window.devicePixelRatio
 
-  XR8.XrController.configure({ disableWorldTracking: false })
+  XR8.XrController.configure({ disableWorldTracking: false, enableLighting: true })
 
   XR8.addCameraPipelineModules([
     XR8.GlTextureRenderer.pipelineModule(),  // camera feed composited behind scene
@@ -304,9 +304,9 @@ function startXR(XR8) {
         initExperience(scene, camera)
       },
 
-      onUpdate() {
+      onUpdate({ processCpuResult }) {
         const { camera } = XR8.Threejs.xrScene()
-        onUpdate(camera)
+        onUpdate(camera, processCpuResult?.reality?.lighting ?? null)
       },
 
       onError(error) {

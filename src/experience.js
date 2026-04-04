@@ -4,6 +4,53 @@ import { playAudio } from './audio.js'
 import { showPrompt, hidePrompt } from './ui.js'
 
 // ---------------------------------------------------------------------------
+// Lighting
+// Two lights always present; applyLightEstimate() updates them when 8th Wall
+// provides real-world estimation data.
+// ---------------------------------------------------------------------------
+
+// HemisphereLight gives a free sky/ground gradient that reads naturally in AR.
+// skyColor ≈ overcast daylight, groundColor ≈ earthy bounce.
+const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x302820, 0.75)
+
+// Main directional light — simulates sun/dominant light source.
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.5)
+dirLight.position.set(1, 3, 2)   // upper-right, slight front bias
+
+let lightEstimateLogged = false   // log raw structure once for debugging
+
+/**
+ * Called each frame with 8th Wall's real-world light estimation data.
+ * The exact object shape varies by engine version, so we probe defensively.
+ * @param {object} lighting — processCpuResult.reality.lighting
+ */
+function applyLightEstimate(lighting) {
+  if (!lightEstimateLogged) {
+    console.log('[lighting] first estimate received:', JSON.stringify(lighting))
+    lightEstimateLogged = true
+  }
+
+  // 8th Wall v1 shape: { lmain: { intensity, color:[r,g,b], direction:[x,y,z] },
+  //                       lambient: { intensity, color:[r,g,b] } }
+  const main    = lighting.lmain    ?? lighting.directional ?? null
+  const ambient = lighting.lambient ?? lighting.ambient     ?? null
+
+  if (main) {
+    if (main.intensity != null)  dirLight.intensity = main.intensity * 2.5
+    if (main.color)              dirLight.color.setRGB(...main.color)
+    if (main.direction) {
+      // direction points *toward* the light; Three.js position is same concept
+      dirLight.position.set(main.direction[0], main.direction[1], main.direction[2])
+    }
+  }
+
+  if (ambient) {
+    if (ambient.intensity != null) hemiLight.intensity = ambient.intensity * 1.5
+    if (ambient.color)             hemiLight.color.setRGB(...ambient.color)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // State machine — all narrative state lives here, nowhere else
 // ---------------------------------------------------------------------------
 const STATE = {
@@ -41,6 +88,9 @@ export function initExperience(xrScene, xrCamera) {
   scene  = xrScene
   camera = xrCamera
 
+  scene.add(hemiLight)
+  scene.add(dirLight)
+
   loadModels()
 }
 
@@ -48,8 +98,14 @@ export function initExperience(xrScene, xrCamera) {
  * Called every frame by the 8th Wall pipeline.
  * @param {THREE.Camera} xrCamera — live AR camera each frame
  */
-export function onUpdate(xrCamera) {
+/**
+ * @param {THREE.Camera} xrCamera
+ * @param {object|null}  lightingEstimate — processCpuResult.reality.lighting, or null
+ */
+export function onUpdate(xrCamera, lightingEstimate = null) {
   camera = xrCamera
+
+  if (lightingEstimate) applyLightEstimate(lightingEstimate)
 
   if (STATE.phase === 'waiting' || STATE.phase === 'placed') {
     checkPanRight()
