@@ -352,7 +352,7 @@ function startXR(XR8, useImageTargets) {
         onUpdate(camera, processCpuResult?.reality?.lighting ?? null)
       },
 
-      listeners: () => itListeners,
+      listeners: itListeners,
 
       onError(error) {
         showDebugOnError()
