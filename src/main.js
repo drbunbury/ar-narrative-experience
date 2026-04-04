@@ -5,7 +5,7 @@
 
 import * as THREE from 'three'
 import { unlockAudio } from './audio.js'
-import { initExperience, onUpdate } from './experience.js'
+import { initExperience, onUpdate, onTargetFound, onTargetUpdated, onTargetLost } from './experience.js'
 
 // 8th Wall's ThreeJS pipeline module checks window.THREE at init time.
 // We load Three.js as an ES module, so we must expose it globally ourselves.
@@ -288,7 +288,12 @@ function startXR(XR8) {
   // to match the camera stream dimensions. Pre-sizing it forces a crop that
   // makes the camera feed appear zoomed in.
 
-  XR8.XrController.configure({ disableWorldTracking: false, enableLighting: true })
+  XR8.XrController.configure({
+    disableWorldTracking: false,
+    enableLighting: true,
+    // 'qr-scene' must match the name used when compiling the image target data
+    imageTargets: ['qr-scene'],
+  })
 
   XR8.addCameraPipelineModules([
     XR8.GlTextureRenderer.pipelineModule(),  // camera feed composited behind scene
@@ -299,7 +304,7 @@ function startXR(XR8) {
 
       onStart({ canvas: c }) {
         dbg('pipeline onStart ✓', 'ok')
-        setStatus('camera', 'ok', 'Camera active ✓')
+        setStatus('camera', 'ok', 'Camera active — point at QR code')
         const { scene, camera } = XR8.Threejs.xrScene()
         initExperience(scene, camera)
       },
@@ -308,6 +313,27 @@ function startXR(XR8) {
         const { camera } = XR8.Threejs.xrScene()
         onUpdate(camera, processCpuResult?.reality?.lighting ?? null)
       },
+
+      listeners: () => [
+        {
+          event: 'reality.imagetarget.found',
+          process: ({ detail }) => {
+            dbg(`image target found: ${detail.name}`, 'ok')
+            onTargetFound(detail)
+          },
+        },
+        {
+          event: 'reality.imagetarget.updated',
+          process: ({ detail }) => onTargetUpdated(detail),
+        },
+        {
+          event: 'reality.imagetarget.lost',
+          process: ({ detail }) => {
+            dbg(`image target lost: ${detail.name}`, 'warn')
+            onTargetLost(detail)
+          },
+        },
+      ],
 
       onError(error) {
         showDebugOnError()
